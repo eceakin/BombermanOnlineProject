@@ -4,7 +4,7 @@ using BombermanOnlineProject.Server.Core.Map;
 using BombermanOnlineProject.Server.Core.Walls;
 using BombermanOnlineProject.Server.Patterns.Creational.Factory;
 
-namespace BombermanOnline.Server.Core.Map
+namespace BombermanOnlineProject.Server.Core.Map
 {
 	/// <summary>
 	/// Manages the game map grid, wall placement, and spatial queries.
