@@ -1,9 +1,24 @@
 ﻿using BombermanOnlineProject.Server.Configuration;
+using BombermanOnlineProject.Server.Patterns.Structural.Decorator;
 
 namespace BombermanOnlineProject.Server.Core.Entities
 {
-	public class Player : GameObject
+	/// <summary>
+	/// Player entity representing a game participant.
+	/// NOW IMPLEMENTS IPlayer to support Decorator Pattern.
+	/// 
+	/// Design Change:
+	/// - Implements IPlayer interface
+	/// - Can be wrapped by decorators (SpeedBoostDecorator, etc.)
+	/// - All properties/methods defined by IPlayer
+	/// - Decorators can enhance functionality without modifying this class
+	/// 
+	/// This is the "Concrete Component" in Decorator Pattern terminology.
+	/// </summary>
+	public class Player : GameObject, IPlayer
 	{
+		#region IPlayer Properties
+
 		public string PlayerName { get; private set; }
 		public int PlayerNumber { get; private set; }
 		public float Speed { get; set; }
@@ -16,6 +31,10 @@ namespace BombermanOnlineProject.Server.Core.Entities
 		public int Kills { get; set; }
 		public int Deaths { get; set; }
 		public char DisplayChar { get; private set; }
+
+		#endregion
+
+		#region Constructor
 
 		public Player(string playerName, int playerNumber, int startX, int startY)
 			: base(startX, startY, GameObjectType.Player)
@@ -32,6 +51,10 @@ namespace BombermanOnlineProject.Server.Core.Entities
 			DisplayChar = GetPlayerChar(playerNumber);
 			IsInvulnerable = false;
 		}
+
+		#endregion
+
+		#region IPlayer Methods
 
 		public override void Update(float deltaTime)
 		{
@@ -94,6 +117,26 @@ namespace BombermanOnlineProject.Server.Core.Entities
 			Console.WriteLine($"[Player] {PlayerName} respawned at ({spawnX}, {spawnY})");
 		}
 
+		public void AddKill()
+		{
+			Kills++;
+			Score += 100;
+		}
+
+		#endregion
+
+		#region Power-Up Collection (Now uses Decorators)
+
+		/// <summary>
+		/// NOTE: This method is kept for backward compatibility.
+		/// In the new Decorator Pattern approach, power-ups are applied
+		/// by wrapping the player with decorators in GameSession.
+		/// 
+		/// This method can still be used for direct stat increases
+		/// without decoration, but the preferred approach is:
+		/// 
+		/// IPlayer decoratedPlayer = new SpeedBoostDecorator(player);
+		/// </summary>
 		public void CollectPowerUp(PowerUp powerUp)
 		{
 			switch (powerUp.PowerUpType)
@@ -117,11 +160,9 @@ namespace BombermanOnlineProject.Server.Core.Entities
 			Score += 10;
 		}
 
-		public void AddKill()
-		{
-			Kills++;
-			Score += 100;
-		}
+		#endregion
+
+		#region Helper Methods
 
 		private char GetPlayerChar(int playerNumber)
 		{
@@ -133,9 +174,15 @@ namespace BombermanOnlineProject.Server.Core.Entities
 			};
 		}
 
+		#endregion
+
+		#region Overrides
+
 		public override string ToString()
 		{
 			return $"Player {PlayerNumber} [{PlayerName}] at ({X}, {Y}) - HP: {(IsAlive ? "Alive" : "Dead")}, Score: {Score}";
 		}
+
+		#endregion
 	}
 }
