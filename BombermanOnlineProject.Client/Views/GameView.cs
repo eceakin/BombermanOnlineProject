@@ -68,9 +68,11 @@ namespace BombermanOnlineProject.Client.Views
 
 		public void DisplayMessage(string message)
 		{
-			Console.ForegroundColor = ConsoleColor.White;
-			Console.WriteLine(message);
-			Console.ResetColor();
+			int currentLine = 25;
+			Console.SetCursorPosition(0, currentLine);
+			Console.WriteLine(new string(' ', Console.WindowWidth)); // Satırı temizle
+			Console.SetCursorPosition(0, currentLine);
+			Console.WriteLine($"> {message}");
 		}
 
 		public void DisplayError(string error)

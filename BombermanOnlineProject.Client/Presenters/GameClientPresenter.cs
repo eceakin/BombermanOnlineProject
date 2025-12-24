@@ -1,22 +1,29 @@
 ﻿using BombermanOnlineProject.Client.Views;
+using BombermanOnlineProject.Client.Network; // SignalRClient için
 using BombermanOnlineProject.Server.Core.Map;
-using Microsoft.AspNetCore.SignalR.Client;
 using System.Text.Json;
+
 namespace BombermanOnlineProject.Client.Presenters
 {
+	/// <summary>
+	/// FASE 8.2 & 8.4 Entegrasyonu
+	/// Presenter sınıfı artık doğrudan HubConnection ile değil, SignalRClient ile konuşur.
+	/// </summary>
 	public class GameClientPresenter
 	{
 		private readonly IGameView _view;
-		private readonly string _sessionId;
-		private  string _playerId;
+		private readonly SignalRClient _networkClient; // HubConnection yerine bu kullanılıyor
+
+		private string _sessionId;
+		private string _playerId; // Sunucudan gelen ID ile güncellenecek
 		private readonly string _playerName;
-		private HubConnection? _hubConnection;
+
 		private GameMap? _currentMap;
 		private Dictionary<string, (int X, int Y, bool IsAlive)> _players;
 		private Dictionary<string, (int X, int Y)> _bombs;
 		private Dictionary<string, List<(int X, int Y)>> _explosions;
+
 		private bool _isGameRunning;
-		private bool _isConnected;
 		private CancellationTokenSource? _gameLoopCancellation;
 
 		public GameClientPresenter(
@@ -26,42 +33,45 @@ namespace BombermanOnlineProject.Client.Presenters
 			string playerName)
 		{
 			_view = view ?? throw new ArgumentNullException(nameof(view));
-			_sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
-			_playerId = playerId ?? throw new ArgumentNullException(nameof(playerId));
-			_playerName = playerName ?? throw new ArgumentNullException(nameof(playerName));
+			_sessionId = sessionId;
+			_playerId = playerId;
+			_playerName = playerName;
+
+			// SignalRClient başlatılıyor
+			_networkClient = new SignalRClient();
 
 			_players = new Dictionary<string, (int, int, bool)>();
 			_bombs = new Dictionary<string, (int, int)>();
 			_explosions = new Dictionary<string, List<(int, int)>>();
 			_isGameRunning = false;
-			_isConnected = false;
+
+			SetupSignalREvents();
 		}
+
+		#region Connection & Game Lifecycle
 
 		public async Task<bool> ConnectAndCreateGameAsync()
 		{
 			try
 			{
-				await ConnectToServerAsync();
+				_view.DisplayMessage("Connecting to server...");
+				await _networkClient.ConnectAsync();
 
-				if (!_isConnected || _hubConnection == null)
-				{
-					return false;
-				}
+				var resultSessionId = await _networkClient.CreateGameAsync(_playerName);
 
-				var result = await _hubConnection.InvokeAsync<string>("CreateGame", _playerName);
-
-				if (string.IsNullOrEmpty(result))
+				if (string.IsNullOrEmpty(resultSessionId))
 				{
 					_view.DisplayError("Failed to create game session.");
 					return false;
 				}
 
-				_view.DisplaySuccess($"Game session created: {result.Substring(0, 8)}...");
+				_sessionId = resultSessionId;
+				_view.DisplaySuccess($"Game created: {_sessionId.Substring(0, 8)}...");
 				return true;
 			}
 			catch (Exception ex)
 			{
-				_view.DisplayError($"Failed to create game: {ex.Message}");
+				_view.DisplayError($"Connection error: {ex.Message}");
 				return false;
 			}
 		}
@@ -70,16 +80,10 @@ namespace BombermanOnlineProject.Client.Presenters
 		{
 			try
 			{
-				await ConnectToServerAsync();
+				await _networkClient.ConnectAsync();
+				var success = await _networkClient.JoinGameAsync(_sessionId, _playerName);
 
-				if (!_isConnected || _hubConnection == null)
-				{
-					return false;
-				}
-
-				var result = await _hubConnection.InvokeAsync<bool>("JoinGame", _sessionId, _playerName);
-
-				if (!result)
+				if (!success)
 				{
 					_view.DisplayError("Failed to join game session.");
 					return false;
@@ -90,19 +94,13 @@ namespace BombermanOnlineProject.Client.Presenters
 			}
 			catch (Exception ex)
 			{
-				_view.DisplayError($"Failed to join game: {ex.Message}");
+				_view.DisplayError($"Join error: {ex.Message}");
 				return false;
 			}
 		}
 
 		public async Task StartGameAsync()
 		{
-			if (!_isConnected || _hubConnection == null)
-			{
-				_view.DisplayError("Not connected to server.");
-				return;
-			}
-
 			try
 			{
 				_view.Show();
@@ -111,8 +109,7 @@ namespace BombermanOnlineProject.Client.Presenters
 				_isGameRunning = true;
 				_gameLoopCancellation = new CancellationTokenSource();
 
-				await _hubConnection.InvokeAsync("StartGame");
-
+				await _networkClient.StartGameAsync();
 				await RunGameLoopAsync(_gameLoopCancellation.Token);
 			}
 			catch (Exception ex)
@@ -122,101 +119,63 @@ namespace BombermanOnlineProject.Client.Presenters
 			}
 		}
 
-		private async Task ConnectToServerAsync()
+		#endregion
+
+		#region SignalR Event Handlers
+
+		private void SetupSignalREvents()
 		{
-			try
-			{
-				_view.DisplayMessage("Connecting to server...");
-
-				_hubConnection = new HubConnectionBuilder()
-					.WithUrl("http://localhost:5054/gamehub")
-					.WithAutomaticReconnect()
-					.Build();
-
-				SetupSignalRHandlers();
-
-				await _hubConnection.StartAsync();
-
-				_isConnected = true;
-				_view.DisplaySuccess("Connected to server!");
-				await Task.Delay(500);
-			}
-			catch (Exception ex)
-			{
-				_view.DisplayError($"Failed to connect: {ex.Message}");
-				_isConnected = false;
-				throw;
-			}
-		}
-
-		private void SetupSignalRHandlers()
-		{
-			if (_hubConnection == null) return;
-
-			// ÖNEMLI: Gelen veriler artık JsonElement olarak okunmalı
-			_hubConnection.On<JsonElement>("GameCreated", data => {
+			// Sunucudan gelen Player ID'yi doğrula (Düzeltme: CS1061 hatası önlendi)
+			_networkClient.On<JsonElement>("GameCreated", data => {
 				_playerId = data.GetProperty("playerId").GetString() ?? _playerId;
-				_view.DisplaySuccess("Game created!");
 			});
 
-			_hubConnection.On<JsonElement>("GameJoined", data => {
+			_networkClient.On<JsonElement>("GameJoined", data => {
 				_playerId = data.GetProperty("playerId").GetString() ?? _playerId;
-				_view.DisplaySuccess("Joined game!");
 			});
 
-			_hubConnection.On<JsonElement>("GameStarted", state => HandleGameStarted(state));
-			_hubConnection.On<JsonElement>("GameStateUpdate", state => HandleGameStateUpdate(state));
-			_hubConnection.On<JsonElement>("PlayerMoved", move => HandlePlayerMoved(move));
-			_hubConnection.On<JsonElement>("BombPlaced", bomb => HandleBombPlaced(bomb));
-			_hubConnection.On<JsonElement>("PlayerJoined", player => HandlePlayerJoined(player));
-			_hubConnection.On<JsonElement>("PlayerLeft", player => HandlePlayerLeft(player));
-
-			_hubConnection.On<string>("Error", msg => _view.DisplayError(msg));
-
-			_hubConnection.Closed += async (error) =>
-			{
-				_isConnected = false;
-				_isGameRunning = false;
-				_view.DisplayError("Connection lost. Attempting to reconnect...");
-				await Task.Delay(5000);
-			};
+			_networkClient.On<JsonElement>("GameStarted", state => HandleGameStarted(state));
+			_networkClient.On<JsonElement>("GameStateUpdate", state => HandleGameStateUpdate(state));
+			_networkClient.On<JsonElement>("PlayerMoved", move => HandlePlayerMoved(move));
+			_networkClient.On<JsonElement>("BombPlaced", bomb => HandleBombPlaced(bomb));
+			_networkClient.On<JsonElement>("PlayerJoined", player => HandlePlayerJoined(player));
+			_networkClient.On<JsonElement>("PlayerLeft", player => HandlePlayerLeft(player));
+			_networkClient.On<string>("Error", msg => _view.DisplayError(msg));
 		}
 
-		private void HandleGameStarted(object gameState)
+		private void HandleGameStarted(JsonElement state)
+		{
+			_currentMap = new GameMap();
+			// Kendi oyuncumuzu listeye ekle
+			_players[_playerId] = (1, 1, true);
+		}
+
+		private void HandleGameStateUpdate(JsonElement state)
 		{
 			try
 			{
-				_currentMap = new GameMap();
-
-				// Oyuna başlarken kendi oyuncumuzu listeye eklemezsek RenderMap bizi çizmez!
-				if (!_players.ContainsKey(_playerId))
+				// 1. Oyuncuları Güncelle
+				var playersElement = state.GetProperty("players");
+				foreach (var p in playersElement.EnumerateArray())
 				{
-					_players[_playerId] = (1, 1, true);
+					var id = p.GetProperty("id").GetString()!;
+					var x = p.GetProperty("x").GetInt32();
+					var y = p.GetProperty("y").GetInt32();
+					var isAlive = p.GetProperty("isAlive").GetBoolean();
+
+					_players[id] = (x, y, isAlive);
 				}
 
-				_view.ShowGameStarted();
+				// 2. İstatistikleri ve Round bilgisini güncelle
+				var stats = state.GetProperty("statistics");
+				int playerCount = stats.GetProperty("playerCount").GetInt32();
+
+				// View'a güncel bilgileri gönder
+				_view.DisplayGameInfo(_sessionId, 1, playerCount, "Playing", TimeSpan.Zero);
 			}
 			catch (Exception ex)
 			{
-				_view.DisplayError($"Start error: {ex.Message}");
-			}
-		}
-
-		private void HandleGameStateUpdate(object gameState)
-		{
-			try
-			{
-				var stateDict = gameState as Dictionary<string, object>;
-				if (stateDict == null) return;
-
-				if (_currentMap == null)
-				{
-					_currentMap = new GameMap();
-				}
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Error updating game state: {ex.Message}");
+				// Loglama yapılabilir
 			}
 		}
 
@@ -224,7 +183,6 @@ namespace BombermanOnlineProject.Client.Presenters
 		{
 			try
 			{
-				// Dictionary cast yerine GetProperty kullanıyoruz
 				var pid = moveData.GetProperty("playerId").GetString() ?? "";
 				var x = moveData.GetProperty("x").GetInt32();
 				var y = moveData.GetProperty("y").GetInt32();
@@ -239,171 +197,80 @@ namespace BombermanOnlineProject.Client.Presenters
 					_players[pid] = (x, y, true);
 				}
 			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Move update error: {ex.Message}");
-			}
-		}
-
-		private void HandleBombPlaced(object bombData)
-		{
-			try
-			{
-				var bombDict = bombData as Dictionary<string, object>;
-				if (bombDict == null) return;
-
-				var playerId = bombDict["playerId"]?.ToString() ?? "";
-				var x = Convert.ToInt32(bombDict["x"]);
-				var y = Convert.ToInt32(bombDict["y"]);
-
-				var bombId = Guid.NewGuid().ToString();
-				_bombs[bombId] = (x, y);
-
-				_view.ShowBombPlaced(playerId, x, y);
-
-				Task.Delay(3000).ContinueWith(_ =>
-				{
-					_bombs.Remove(bombId);
-					HandleExplosion(x, y);
-				});
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Error handling bomb placement: {ex.Message}");
-			}
-		}
-
-		private void HandleExplosion(int x, int y)
-		{
-			try
-			{
-				var explosionId = Guid.NewGuid().ToString();
-				var affectedCells = new List<(int, int)> { (x, y) };
-
-				for (int i = 1; i <= 2; i++)
-				{
-					affectedCells.Add((x + i, y));
-					affectedCells.Add((x - i, y));
-					affectedCells.Add((x, y + i));
-					affectedCells.Add((x, y - i));
-				}
-
-				_explosions[explosionId] = affectedCells;
-				_view.ShowExplosion(x, y, affectedCells);
-
-				Task.Delay(500).ContinueWith(_ =>
-				{
-					_explosions.Remove(explosionId);
-				});
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Error handling explosion: {ex.Message}");
-			}
+			catch { /* Parse hatası */ }
 		}
 
 		private void HandlePlayerJoined(JsonElement playerData)
 		{
-			try
-			{
-				var pid = playerData.GetProperty("playerId").GetString() ?? "";
-				var name = playerData.GetProperty("playerName").GetString() ?? "Unknown";
-
-				// Yeni oyuncuyu listeye ekle
-				_players[pid] = (1, 1, true);
-				_view.ShowPlayerJoined(pid, name);
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Join error: {ex.Message}");
-			}
+			var pid = playerData.GetProperty("playerId").GetString() ?? "";
+			var name = playerData.GetProperty("playerName").GetString() ?? "Unknown";
+			_players[pid] = (1, 1, true);
+			_view.ShowPlayerJoined(pid, name);
 		}
 
-		private void HandlePlayerLeft(object playerData)
+		private void HandleBombPlaced(JsonElement bombData)
 		{
-			try
-			{
-				var playerDict = playerData as Dictionary<string, object>;
-				if (playerDict == null) return;
+			var pid = bombData.GetProperty("playerId").GetString() ?? "";
+			var x = bombData.GetProperty("x").GetInt32();
+			var y = bombData.GetProperty("y").GetInt32();
 
-				var playerId = playerDict["playerId"]?.ToString() ?? "";
+			var bombId = Guid.NewGuid().ToString();
+			_bombs[bombId] = (x, y);
+			_view.ShowBombPlaced(pid, x, y);
 
-				_players.Remove(playerId);
-				_view.ShowPlayerLeft(playerId);
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Error handling player leave: {ex.Message}");
-			}
+			// 3 saniye sonra bombayı kaldır ve patlama simülasyonu yap (Basit client-side logic)
+			Task.Delay(3000).ContinueWith(_ => {
+				_bombs.Remove(bombId);
+				HandleExplosion(x, y);
+			});
 		}
 
-		private async Task RunGameLoopAsync(CancellationToken cancellationToken)
+		private void HandleExplosion(int x, int y)
 		{
-			if (_currentMap == null)
-			{
-				_currentMap = new GameMap();
-			}
+			var explosionId = Guid.NewGuid().ToString();
+			var cells = new List<(int, int)> { (x, y), (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1) };
+			_explosions[explosionId] = cells;
+			_view.ShowExplosion(x, y, cells);
+			Task.Delay(500).ContinueWith(_ => _explosions.Remove(explosionId));
+		}
 
-			while (_isGameRunning && !cancellationToken.IsCancellationRequested)
+		private void HandlePlayerLeft(JsonElement playerData)
+		{
+			var pid = playerData.GetProperty("playerId").GetString() ?? "";
+			_players.Remove(pid);
+			_view.ShowPlayerLeft(pid);
+		}
+
+		#endregion
+
+		#region Game Loop & Input
+
+		private async Task RunGameLoopAsync(CancellationToken token)
+		{
+			while (_isGameRunning && !token.IsCancellationRequested)
 			{
 				try
 				{
 					await HandleUserInputAsync();
-
 					RenderGame();
-
-					await Task.Delay(33, cancellationToken);
+					await Task.Delay(33, token); // ~30 FPS
 				}
-				catch (OperationCanceledException)
-				{
-					break;
-				}
-				catch (Exception ex)
-				{
-					_view.DisplayError($"Game loop error: {ex.Message}");
-				}
+				catch (OperationCanceledException) { break; }
 			}
-
 			await EndGameAsync();
 		}
 
 		private async Task HandleUserInputAsync()
 		{
-			if (_hubConnection == null || !_isConnected) return;
-
 			var key = _view.WaitForInput();
-
-			try
+			switch (key)
 			{
-				switch (key)
-				{
-					case ConsoleKey.UpArrow:
-						await _hubConnection.InvokeAsync("MovePlayer", "up");
-						break;
-					case ConsoleKey.DownArrow:
-						await _hubConnection.InvokeAsync("MovePlayer", "down");
-						break;
-					case ConsoleKey.LeftArrow:
-						await _hubConnection.InvokeAsync("MovePlayer", "left");
-						break;
-					case ConsoleKey.RightArrow:
-						await _hubConnection.InvokeAsync("MovePlayer", "right");
-						break;
-					case ConsoleKey.Spacebar:
-						await _hubConnection.InvokeAsync("PlaceBomb");
-						break;
-					case ConsoleKey.P:
-						_isGameRunning = false;
-						_view.DisplayMessage("Game paused. Press any key to return to menu...");
-						break;
-					case ConsoleKey.Escape:
-						_isGameRunning = false;
-						break;
-				}
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"Error sending input: {ex.Message}");
+				case ConsoleKey.UpArrow: await _networkClient.MovePlayerAsync("up"); break;
+				case ConsoleKey.DownArrow: await _networkClient.MovePlayerAsync("down"); break;
+				case ConsoleKey.LeftArrow: await _networkClient.MovePlayerAsync("left"); break;
+				case ConsoleKey.RightArrow: await _networkClient.MovePlayerAsync("right"); break;
+				case ConsoleKey.Spacebar: await _networkClient.PlaceBombAsync(); break;
+				case ConsoleKey.Escape: _isGameRunning = false; break;
 			}
 		}
 
@@ -413,80 +280,21 @@ namespace BombermanOnlineProject.Client.Presenters
 
 			_view.RenderMap(_currentMap, _players, _bombs, _explosions);
 
-			if (_players.TryGetValue(_playerId, out var playerData))
+			if (_players.TryGetValue(_playerId, out var data))
 			{
-				_view.DisplayPlayerStats(
-					_playerId,
-					score: 0,
-					kills: 0,
-					deaths: 0,
-					speed: 3.0f,
-					bombPower: 2,
-					maxBombs: 1,
-					activeBombs: 0);
+				_view.DisplayPlayerStats(_playerId, 0, 0, 0, 3.0f, 2, 1, 0);
 			}
 
-			_view.DisplayGameInfo(
-				_sessionId,
-				currentRound: 1,
-				playerCount: _players.Count,
-				gameState: "Playing",
-				duration: TimeSpan.Zero);
+			_view.DisplayGameInfo(_sessionId, 1, _players.Count, "Playing", TimeSpan.Zero);
 		}
 
 		private async Task EndGameAsync()
 		{
 			_isGameRunning = false;
-
-			var finalScores = new Dictionary<string, int>
-			{
-				{ _playerId, 0 }
-			};
-
-			_view.ShowGameEnded("Winner", finalScores);
-
-			if (_hubConnection != null && _isConnected)
-			{
-				try
-				{
-					await _hubConnection.InvokeAsync("LeaveGame");
-				}
-				catch (Exception ex)
-				{
-					Console.WriteLine($"Error leaving game: {ex.Message}");
-				}
-			}
-
+			await _networkClient.LeaveGameAsync();
 			_view.Hide();
 		}
 
-		public async Task DisconnectAsync()
-		{
-			_isGameRunning = false;
-			_gameLoopCancellation?.Cancel();
-
-			if (_hubConnection != null)
-			{
-				try
-				{
-					if (_isConnected)
-					{
-						await _hubConnection.InvokeAsync("LeaveGame");
-					}
-
-					await _hubConnection.StopAsync();
-					await _hubConnection.DisposeAsync();
-				}
-				catch (Exception ex)
-				{
-					Console.WriteLine($"Error disconnecting: {ex.Message}");
-				}
-				finally
-				{
-					_hubConnection = null;
-					_isConnected = false;
-				}
-			}
-		}
+		#endregion
 	}
 }
