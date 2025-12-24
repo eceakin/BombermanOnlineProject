@@ -1,14 +1,14 @@
 ﻿using BombermanOnlineProject.Client.Views;
 using BombermanOnlineProject.Server.Core.Map;
 using Microsoft.AspNetCore.SignalR.Client;
-
+using System.Text.Json;
 namespace BombermanOnlineProject.Client.Presenters
 {
 	public class GameClientPresenter
 	{
 		private readonly IGameView _view;
 		private readonly string _sessionId;
-		private readonly string _playerId;
+		private  string _playerId;
 		private readonly string _playerName;
 		private HubConnection? _hubConnection;
 		private GameMap? _currentMap;
@@ -153,50 +153,25 @@ namespace BombermanOnlineProject.Client.Presenters
 		{
 			if (_hubConnection == null) return;
 
-			_hubConnection.On<object>("GameCreated", gameData =>
-			{
-				_view.DisplaySuccess("Game created successfully!");
+			// ÖNEMLI: Gelen veriler artık JsonElement olarak okunmalı
+			_hubConnection.On<JsonElement>("GameCreated", data => {
+				_playerId = data.GetProperty("playerId").GetString() ?? _playerId;
+				_view.DisplaySuccess("Game created!");
 			});
 
-			_hubConnection.On<object>("GameJoined", gameData =>
-			{
-				_view.DisplaySuccess("Joined game successfully!");
+			_hubConnection.On<JsonElement>("GameJoined", data => {
+				_playerId = data.GetProperty("playerId").GetString() ?? _playerId;
+				_view.DisplaySuccess("Joined game!");
 			});
 
-			_hubConnection.On<object>("GameStarted", gameState =>
-			{
-				HandleGameStarted(gameState);
-			});
+			_hubConnection.On<JsonElement>("GameStarted", state => HandleGameStarted(state));
+			_hubConnection.On<JsonElement>("GameStateUpdate", state => HandleGameStateUpdate(state));
+			_hubConnection.On<JsonElement>("PlayerMoved", move => HandlePlayerMoved(move));
+			_hubConnection.On<JsonElement>("BombPlaced", bomb => HandleBombPlaced(bomb));
+			_hubConnection.On<JsonElement>("PlayerJoined", player => HandlePlayerJoined(player));
+			_hubConnection.On<JsonElement>("PlayerLeft", player => HandlePlayerLeft(player));
 
-			_hubConnection.On<object>("GameStateUpdate", gameState =>
-			{
-				HandleGameStateUpdate(gameState);
-			});
-
-			_hubConnection.On<object>("PlayerMoved", moveData =>
-			{
-				HandlePlayerMoved(moveData);
-			});
-
-			_hubConnection.On<object>("BombPlaced", bombData =>
-			{
-				HandleBombPlaced(bombData);
-			});
-
-			_hubConnection.On<object>("PlayerJoined", playerData =>
-			{
-				HandlePlayerJoined(playerData);
-			});
-
-			_hubConnection.On<object>("PlayerLeft", playerData =>
-			{
-				HandlePlayerLeft(playerData);
-			});
-
-			_hubConnection.On<string>("Error", errorMessage =>
-			{
-				_view.DisplayError(errorMessage);
-			});
+			_hubConnection.On<string>("Error", msg => _view.DisplayError(msg));
 
 			_hubConnection.Closed += async (error) =>
 			{
@@ -213,12 +188,18 @@ namespace BombermanOnlineProject.Client.Presenters
 			{
 				_currentMap = new GameMap();
 
-				// ÖNEMLİ: Kendi oyuncumuzu listeye eklemezsek RenderMap bizi çizmez!
-				_players[_playerId] = (1, 1, true);
+				// Oyuna başlarken kendi oyuncumuzu listeye eklemezsek RenderMap bizi çizmez!
+				if (!_players.ContainsKey(_playerId))
+				{
+					_players[_playerId] = (1, 1, true);
+				}
 
-				_view.DisplaySuccess("Game has started!");
+				_view.ShowGameStarted();
 			}
-			catch (Exception ex) { _view.DisplayError(ex.Message); }
+			catch (Exception ex)
+			{
+				_view.DisplayError($"Start error: {ex.Message}");
+			}
 		}
 
 		private void HandleGameStateUpdate(object gameState)
@@ -239,30 +220,28 @@ namespace BombermanOnlineProject.Client.Presenters
 			}
 		}
 
-		private void HandlePlayerMoved(object moveData)
+		private void HandlePlayerMoved(JsonElement moveData)
 		{
 			try
 			{
-				var moveDict = moveData as Dictionary<string, object>;
-				if (moveDict == null) return;
+				// Dictionary cast yerine GetProperty kullanıyoruz
+				var pid = moveData.GetProperty("playerId").GetString() ?? "";
+				var x = moveData.GetProperty("x").GetInt32();
+				var y = moveData.GetProperty("y").GetInt32();
 
-				var playerId = moveDict["playerId"]?.ToString() ?? "";
-				var x = Convert.ToInt32(moveDict["x"]);
-				var y = Convert.ToInt32(moveDict["y"]);
-
-				if (_players.ContainsKey(playerId))
+				if (_players.ContainsKey(pid))
 				{
-					var (_, _, isAlive) = _players[playerId];
-					_players[playerId] = (x, y, isAlive);
+					var (_, _, isAlive) = _players[pid];
+					_players[pid] = (x, y, isAlive);
 				}
 				else
 				{
-					_players[playerId] = (x, y, true);
+					_players[pid] = (x, y, true);
 				}
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"Error handling player move: {ex.Message}");
+				Console.WriteLine($"Move update error: {ex.Message}");
 			}
 		}
 
@@ -323,22 +302,20 @@ namespace BombermanOnlineProject.Client.Presenters
 			}
 		}
 
-		private void HandlePlayerJoined(object playerData)
+		private void HandlePlayerJoined(JsonElement playerData)
 		{
 			try
 			{
-				var playerDict = playerData as Dictionary<string, object>;
-				if (playerDict == null) return;
+				var pid = playerData.GetProperty("playerId").GetString() ?? "";
+				var name = playerData.GetProperty("playerName").GetString() ?? "Unknown";
 
-				var playerId = playerDict["playerId"]?.ToString() ?? "";
-				var playerName = playerDict["playerName"]?.ToString() ?? "Unknown";
-
-				_players[playerId] = (1, 1, true); // Başlangıç koordinatı (spawn) verilmeli
-				_view.ShowPlayerJoined(playerId, playerName);
+				// Yeni oyuncuyu listeye ekle
+				_players[pid] = (1, 1, true);
+				_view.ShowPlayerJoined(pid, name);
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"Error handling player join: {ex.Message}");
+				Console.WriteLine($"Join error: {ex.Message}");
 			}
 		}
 
