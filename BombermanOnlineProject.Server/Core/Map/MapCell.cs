@@ -38,7 +38,7 @@ namespace BombermanOnlineProject.Server.Core.Map
 		/// <summary>
 		/// Power-up in this cell (null if no power-up)
 		/// </summary>
-		public GameObject? PowerUp { get; private set; }
+		public PowerUp? PowerUp { get; private set; }
 
 		/// <summary>
 		/// List of game objects currently in this cell (players, bombs, enemies)
@@ -119,7 +119,7 @@ namespace BombermanOnlineProject.Server.Core.Map
 		/// <summary>
 		/// Places a power-up in this cell
 		/// </summary>
-		public void SetPowerUp(GameObject powerUp)
+		public void SetPowerUp(PowerUp powerUp)
 		{
 			lock (_lock)
 			{
@@ -130,7 +130,7 @@ namespace BombermanOnlineProject.Server.Core.Map
 		/// <summary>
 		/// Removes and returns the power-up from this cell
 		/// </summary>
-		public GameObject? CollectPowerUp()
+		public PowerUp? CollectPowerUp()
 		{
 			lock (_lock)
 			{

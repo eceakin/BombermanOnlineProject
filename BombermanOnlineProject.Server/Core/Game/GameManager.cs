@@ -260,33 +260,5 @@ namespace BombermanOnlineProject.Server.Core.Game
 	/// Placeholder for GameSession class (will be implemented in FASE 5)
 	/// This is a stub to allow GameManager to compile
 	/// </summary>
-	public class GameSession
-	{
-		public string SessionId { get; }
-		public string HostPlayerId { get; }
-		private readonly List<string> _playerIds = new();
-
-		public GameSession(string sessionId, string hostPlayerId)
-		{
-			SessionId = sessionId;
-			HostPlayerId = hostPlayerId;
-			_playerIds.Add(hostPlayerId);
-		}
-
-		public bool AddPlayer(string playerId)
-		{
-			if (_playerIds.Count >= 2) return false; // Max 2 players
-			_playerIds.Add(playerId);
-			return true;
-		}
-
-		public void RemovePlayer(string playerId)
-		{
-			_playerIds.Remove(playerId);
-		}
-
-		public bool IsEmpty() => _playerIds.Count == 0;
-
-		public IReadOnlyList<string> GetPlayerIds() => _playerIds.AsReadOnly();
-	}
+	
 }
