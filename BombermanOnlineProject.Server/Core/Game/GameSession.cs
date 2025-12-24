@@ -638,36 +638,56 @@ namespace BombermanOnlineProject.Server.Core.Game
 
 		private void CheckWinCondition()
 		{
+			// Hayatta olan oyuncuları listele
 			var alivePlayers = _players.Values.Where(p => p.IsAlive).ToList();
 
-			if (alivePlayers.Count == 1)
+			// DURUM 1: Çok Oyunculu Mod (2 veya daha fazla oyuncu var)
+			if (_players.Count > 1)
 			{
-				var winner = alivePlayers[0];
-				var winnerId = GetPlayerIdByPlayer(winner);
-
-				if (winnerId != null)
+				// Sadece 1 kişi hayatta kaldıysa o raundu kazanır
+				if (alivePlayers.Count == 1)
 				{
-					_roundWins[winnerId]++;
-					Console.WriteLine($"[GameSession] Round {CurrentRound} won by {winnerId}");
+					var winner = alivePlayers[0];
+					var winnerId = GetPlayerIdByPlayer(winner);
 
-					if (_roundWins[winnerId] >= GameSettings.RoundsToWin)
+					if (winnerId != null)
 					{
-						Console.WriteLine($"[GameSession] {winnerId} wins the match!");
-						EndGame();
-					}
-					else
-					{
-						StartNewRound();
+						_roundWins[winnerId]++;
+						Console.WriteLine($"[GameSession] Round {CurrentRound} won by {winnerId}");
+
+						// Toplam galibiyet sayısına ulaşıldıysa maçı bitir
+						if (_roundWins[winnerId] >= GameSettings.RoundsToWin)
+						{
+							Console.WriteLine($"[GameSession] {winnerId} wins the match!");
+							EndGame();
+						}
+						else
+						{
+							// Yeni raunda geç
+							StartNewRound();
+						}
 					}
 				}
+				// Eğer herkes aynı anda öldüyse berabere biter
+				else if (alivePlayers.Count == 0)
+				{
+					Console.WriteLine($"[GameSession] Round {CurrentRound} ended in a draw");
+					StartNewRound();
+				}
 			}
-			else if (alivePlayers.Count == 0)
+			// DURUM 2: Tek Oyunculu Mod (Sadece sen varsın)
+			else if (_players.Count == 1)
 			{
-				Console.WriteLine($"[GameSession] Round {CurrentRound} ended in a draw");
-				StartNewRound();
+				// Eğer tek oyuncu öldüyse oyun biter (Anında kazanma engellendi)
+				if (alivePlayers.Count == 0)
+				{
+					Console.WriteLine("[GameSession] Player died in single-player mode. Game Over.");
+					EndGame();
+				}
+
+				// İsteğe bağlı: Tüm düşmanlar öldüyse kazanma mantığı buraya eklenebilir
 			}
 		}
-
 		private void StartNewRound()
 		{
 			lock (_sessionLock)

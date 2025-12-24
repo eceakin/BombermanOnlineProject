@@ -212,12 +212,13 @@ namespace BombermanOnlineProject.Client.Presenters
 			try
 			{
 				_currentMap = new GameMap();
+
+				// ÖNEMLİ: Kendi oyuncumuzu listeye eklemezsek RenderMap bizi çizmez!
+				_players[_playerId] = (1, 1, true);
+
 				_view.DisplaySuccess("Game has started!");
 			}
-			catch (Exception ex)
-			{
-				_view.DisplayError($"Error handling game start: {ex.Message}");
-			}
+			catch (Exception ex) { _view.DisplayError(ex.Message); }
 		}
 
 		private void HandleGameStateUpdate(object gameState)
@@ -332,6 +333,7 @@ namespace BombermanOnlineProject.Client.Presenters
 				var playerId = playerDict["playerId"]?.ToString() ?? "";
 				var playerName = playerDict["playerName"]?.ToString() ?? "Unknown";
 
+				_players[playerId] = (1, 1, true); // Başlangıç koordinatı (spawn) verilmeli
 				_view.ShowPlayerJoined(playerId, playerName);
 			}
 			catch (Exception ex)

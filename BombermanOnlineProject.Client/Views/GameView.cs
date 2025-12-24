@@ -121,8 +121,8 @@ namespace BombermanOnlineProject.Client.Views
 						else if (playerPositions.ContainsKey((x, y)))
 						{
 							var (playerId, isAlive) = playerPositions[(x, y)];
-							displayChar = playerId.Contains("player1") ? 'P' : 'Q';
-							color = isAlive ? ConsoleColor.Cyan : ConsoleColor.DarkGray;
+							displayChar = 'P';
+							color = ConsoleColor.Cyan;
 						}
 						else if (bombPositions.Contains((x, y)))
 						{

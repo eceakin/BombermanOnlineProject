@@ -95,7 +95,7 @@ namespace BombermanOnlineProject.Server.Core.Map
 			InitializeGrid();
 			GenerateMap();
 
-			Console.WriteLine($"[GameMap] Map created: {Width}x{Height}, Theme: {Theme}");
+			//Console.WriteLine($"[GameMap] Map created: {Width}x{Height}, Theme: {Theme}");
 		}
 
 		#endregion

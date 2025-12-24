@@ -9,7 +9,12 @@ namespace BombermanOnlineProject.Server.Hubs
 		private static readonly ConcurrentDictionary<string, string> _connectionToPlayer = new();
 		private static readonly ConcurrentDictionary<string, Timer> _gameLoopTimers = new();
 		private const int GAME_TICK_RATE = 33;
+		private readonly IHubContext<GameHub> _hubContext; // Yeni eklendi
 
+		public GameHub(IHubContext<GameHub> hubContext) // Constructor eklendi
+		{
+			_hubContext = hubContext;
+		}
 		public override async Task OnConnectedAsync()
 		{
 			await base.OnConnectedAsync();
@@ -344,7 +349,7 @@ namespace BombermanOnlineProject.Server.Hubs
 					}
 
 					var gameState = BuildGameState(session);
-					await Clients.Group(sessionId).SendAsync("GameStateUpdate", gameState);
+					await _hubContext.Clients.Group(sessionId).SendAsync("GameStateUpdate", gameState);
 				}
 				catch (Exception ex)
 				{

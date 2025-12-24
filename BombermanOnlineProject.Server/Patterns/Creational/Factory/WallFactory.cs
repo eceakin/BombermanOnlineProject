@@ -79,7 +79,7 @@ namespace BombermanOnlineProject.Server.Patterns.Creational.Factory
 			if (_wallCreators.TryGetValue(entityType, out var creator))
 			{
 				var wall = creator(x, y);
-				Console.WriteLine($"[WallFactory] Created {entityType} wall at ({x}, {y})");
+			//	Console.WriteLine($"[WallFactory] Created {entityType} wall at ({x}, {y})");
 				return wall;
 			}
 
