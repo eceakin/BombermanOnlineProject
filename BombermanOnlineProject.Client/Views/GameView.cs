@@ -1,19 +1,51 @@
-﻿using BombermanOnlineProject.Server.Core.Map;
-using System.Text;
+﻿using BombermanOnlineProject.Client.Rendering;
+using BombermanOnlineProject.Server.Configuration;
+using BombermanOnlineProject.Server.Core.Map;
 
 namespace BombermanOnlineProject.Client.Views
 {
+	/// <summary>
+	/// MVP Pattern - View Layer for Game Screen
+	/// 
+	/// Responsibilities:
+	/// - Display game state
+	/// - Show user notifications
+	/// - Handle view lifecycle
+	/// - Delegate rendering to ConsoleRenderer
+	/// 
+	/// Does NOT:
+	/// - Contain game logic
+	/// - Handle user input processing
+	/// - Manage game state
+	/// </summary>
 	public class GameView : IGameView
 	{
-		private readonly object _renderLock = new object();
+		#region Private Fields
+
+		private readonly ConsoleRenderer _renderer;
+		private readonly ThemeRenderer _themeRenderer;
 		private bool _isVisible = false;
+
+		#endregion
+
+		#region Constructor
+
+		public GameView(GameSettings.GameTheme theme = GameSettings.GameTheme.Forest)
+		{
+			_themeRenderer = new ThemeRenderer(theme);
+			_renderer = new ConsoleRenderer(_themeRenderer);
+		}
+
+		#endregion
+
+		#region IView Implementation - Lifecycle
 
 		public void Show()
 		{
 			_isVisible = true;
 			Console.Clear();
 			Console.CursorVisible = false;
-			DisplayControls();
+			_renderer.RenderControls();
 		}
 
 		public void Hide()
@@ -30,34 +62,29 @@ namespace BombermanOnlineProject.Client.Views
 			}
 		}
 
+		#endregion
+
+		#region IView Implementation - Messages
+
 		public void DisplayMessage(string message)
 		{
-			lock (_renderLock)
-			{
-				Console.ForegroundColor = ConsoleColor.White;
-				Console.WriteLine(message);
-				Console.ResetColor();
-			}
+			Console.ForegroundColor = ConsoleColor.White;
+			Console.WriteLine(message);
+			Console.ResetColor();
 		}
 
 		public void DisplayError(string error)
 		{
-			lock (_renderLock)
-			{
-				Console.ForegroundColor = ConsoleColor.Red;
-				Console.WriteLine($"[ERROR] {error}");
-				Console.ResetColor();
-			}
+			Console.ForegroundColor = ConsoleColor.Red;
+			Console.WriteLine($"[ERROR] {error}");
+			Console.ResetColor();
 		}
 
 		public void DisplaySuccess(string message)
 		{
-			lock (_renderLock)
-			{
-				Console.ForegroundColor = ConsoleColor.Green;
-				Console.WriteLine($"[SUCCESS] {message}");
-				Console.ResetColor();
-			}
+			Console.ForegroundColor = ConsoleColor.Green;
+			Console.WriteLine($"[SUCCESS] {message}");
+			Console.ResetColor();
 		}
 
 		public bool ConfirmAction(string message)
@@ -74,191 +101,87 @@ namespace BombermanOnlineProject.Client.Views
 			return Console.ReadLine() ?? string.Empty;
 		}
 
-		public void RenderMap(GameMap map, Dictionary<string, (int X, int Y, bool IsAlive)> players,
-							 Dictionary<string, (int X, int Y)> bombs,
-							 Dictionary<string, List<(int X, int Y)>> explosions)
+		#endregion
+
+		#region IGameView Implementation - Rendering
+
+		public void RenderMap(
+			GameMap map,
+			Dictionary<string, (int X, int Y, bool IsAlive)> players,
+			Dictionary<string, (int X, int Y)> bombs,
+			Dictionary<string, List<(int X, int Y)>> explosions)
 		{
-			lock (_renderLock)
-			{
-				if (!_isVisible) return;
+			if (!_isVisible) return;
 
-				Console.SetCursorPosition(0, 5);
-
-				var explosionCells = new HashSet<(int, int)>();
-				foreach (var explosion in explosions.Values)
-				{
-					foreach (var cell in explosion)
-					{
-						explosionCells.Add((cell.X, cell.Y));
-					}
-				}
-
-				var bombPositions = bombs.Values.Select(b => (b.X, b.Y)).ToHashSet();
-				var playerPositions = new Dictionary<(int, int), (string Id, bool IsAlive)>();
-
-				foreach (var kvp in players)
-				{
-					playerPositions[(kvp.Value.X, kvp.Value.Y)] = (kvp.Key, kvp.Value.IsAlive);
-				}
-
-				var sb = new StringBuilder();
-				sb.AppendLine("┌" + new string('─', map.Width * 2) + "┐");
-
-				for (int y = 0; y < map.Height; y++)
-				{
-					sb.Append("│");
-					for (int x = 0; x < map.Width; x++)
-					{
-						var cell = map.GetCell(x, y);
-						char displayChar = ' ';
-						ConsoleColor color = ConsoleColor.Gray;
-
-						if (explosionCells.Contains((x, y)))
-						{
-							displayChar = '※';
-							color = ConsoleColor.Yellow;
-						}
-						else if (playerPositions.ContainsKey((x, y)))
-						{
-							var (playerId, isAlive) = playerPositions[(x, y)];
-							displayChar = 'P';
-							color = ConsoleColor.Cyan;
-						}
-						else if (bombPositions.Contains((x, y)))
-						{
-							displayChar = '●';
-							color = ConsoleColor.Red;
-						}
-						else if (cell.HasPowerUp())
-						{
-							displayChar = cell.PowerUp!.DisplayChar;
-							color = ConsoleColor.Magenta;
-						}
-						else if (cell.HasWall())
-						{
-							displayChar = cell.Wall!.DisplayChar;
-							color = cell.Wall.IsBreakable ? ConsoleColor.DarkYellow : ConsoleColor.White;
-						}
-						else
-						{
-							displayChar = '·';
-							color = ConsoleColor.DarkGray;
-						}
-
-						Console.ForegroundColor = color;
-						sb.Append(displayChar);
-						sb.Append(' ');
-					}
-					Console.ResetColor();
-					sb.AppendLine("│");
-				}
-
-				sb.AppendLine("└" + new string('─', map.Width * 2) + "┘");
-				Console.Write(sb.ToString());
-				Console.ResetColor();
-			}
+			// Delegate to ConsoleRenderer
+			_renderer.RenderMap(map, players, bombs, explosions);
 		}
 
-		public void DisplayPlayerStats(string playerId, int score, int kills, int deaths,
-									  float speed, int bombPower, int maxBombs, int activeBombs)
+		public void DisplayPlayerStats(
+			string playerId,
+			int score,
+			int kills,
+			int deaths,
+			float speed,
+			int bombPower,
+			int maxBombs,
+			int activeBombs)
 		{
-			lock (_renderLock)
-			{
-				Console.SetCursorPosition(0, 0);
-				Console.ForegroundColor = ConsoleColor.Cyan;
-				Console.WriteLine($"╔═══════════════════════════════════════════════╗");
-				Console.WriteLine($"║ Player: {playerId.Substring(0, Math.Min(8, playerId.Length)).PadRight(35)} ║");
-				Console.WriteLine($"║ Score: {score.ToString().PadRight(5)} | Kills: {kills.ToString().PadRight(3)} | Deaths: {deaths.ToString().PadRight(3)}   ║");
-				Console.WriteLine($"║ Speed: {speed:F1} | Power: {bombPower} | Bombs: {activeBombs}/{maxBombs}     ║");
-				Console.WriteLine($"╚═══════════════════════════════════════════════╝");
-				Console.ResetColor();
-			}
+			if (!_isVisible) return;
+
+			// Delegate to ConsoleRenderer
+			_renderer.RenderPlayerStats(
+				playerId, score, kills, deaths,
+				speed, bombPower, maxBombs, activeBombs);
 		}
 
-		public void DisplayGameInfo(string sessionId, int currentRound, int playerCount,
-								   string gameState, TimeSpan duration)
+		public void DisplayGameInfo(
+			string sessionId,
+			int currentRound,
+			int playerCount,
+			string gameState,
+			TimeSpan duration)
 		{
-			lock (_renderLock)
-			{
-				Console.SetCursorPosition(50, 0);
-				Console.ForegroundColor = ConsoleColor.Yellow;
-				Console.WriteLine($"╔══════════════════════════════╗");
-				Console.WriteLine($"║ Session: {sessionId.Substring(0, Math.Min(8, sessionId.Length)).PadRight(16)} ║");
-				Console.WriteLine($"║ Round: {currentRound.ToString().PadRight(3)} | Players: {playerCount}      ║");
-				Console.WriteLine($"║ State: {gameState.PadRight(20)} ║");
-				Console.WriteLine($"║ Time: {duration.ToString(@"mm\:ss").PadRight(21)} ║");
-				Console.WriteLine($"╚══════════════════════════════╝");
-				Console.ResetColor();
-			}
+			if (!_isVisible) return;
+
+			// Delegate to ConsoleRenderer
+			_renderer.RenderGameInfo(
+				sessionId, currentRound, playerCount,
+				gameState, duration);
 		}
 
 		public void DisplayControls()
 		{
-			lock (_renderLock)
-			{
-				Console.SetCursorPosition(0, Console.WindowHeight - 4);
-				Console.ForegroundColor = ConsoleColor.Green;
-				Console.WriteLine("╔═══════════════════════════════════════════════════════════════╗");
-				Console.WriteLine("║ Controls: ↑↓←→ Move | SPACE Bomb | ESC Quit | P Pause       ║");
-				Console.WriteLine("╚═══════════════════════════════════════════════════════════════╝");
-				Console.ResetColor();
-			}
+			if (!_isVisible) return;
+
+			// Delegate to ConsoleRenderer
+			_renderer.RenderControls();
 		}
+
+		#endregion
+
+		#region IGameView Implementation - Game Events
 
 		public void ShowGameStarted()
 		{
-			lock (_renderLock)
-			{
-				Console.Clear();
-				Console.ForegroundColor = ConsoleColor.Green;
-				Console.WriteLine("\n\n");
-				Console.WriteLine("  ╔═══════════════════════════════════╗");
-				Console.WriteLine("  ║                                   ║");
-				Console.WriteLine("  ║         GAME STARTED!             ║");
-				Console.WriteLine("  ║                                   ║");
-				Console.WriteLine("  ╚═══════════════════════════════════╝");
-				Console.ResetColor();
-				Thread.Sleep(2000);
-				Show();
-			}
+			_renderer.RenderMessageBox(
+				"GAME STARTED!",
+				"Get ready to play!",
+				ConsoleColor.Green);
+
+			Thread.Sleep(2000);
+			Show();
 		}
 
 		public void ShowGameEnded(string winnerId, Dictionary<string, int> finalScores)
 		{
-			lock (_renderLock)
-			{
-				Console.Clear();
-				Console.ForegroundColor = ConsoleColor.Yellow;
-				Console.WriteLine("\n\n");
-				Console.WriteLine("  ╔═══════════════════════════════════╗");
-				Console.WriteLine("  ║                                   ║");
-				Console.WriteLine("  ║         GAME ENDED!               ║");
-				Console.WriteLine("  ║                                   ║");
-				Console.WriteLine("  ╚═══════════════════════════════════╝");
-				Console.WriteLine();
-				Console.WriteLine($"  Winner: {winnerId}");
-				Console.WriteLine("\n  Final Scores:");
-				foreach (var score in finalScores.OrderByDescending(s => s.Value))
-				{
-					Console.WriteLine($"    {score.Key}: {score.Value}");
-				}
-				Console.ResetColor();
-				Console.WriteLine("\n  Press any key to continue...");
-				Console.ReadKey();
-			}
+			_renderer.RenderGameOver(winnerId, finalScores);
 		}
 
 		public void ShowRoundWon(string winnerId, int roundNumber)
 		{
-			lock (_renderLock)
-			{
-				var currentTop = Console.CursorTop;
-				Console.SetCursorPosition(0, Console.WindowHeight / 2);
-				Console.ForegroundColor = ConsoleColor.Green;
-				Console.WriteLine($"\n  ═══ ROUND {roundNumber} WON BY {winnerId} ═══\n");
-				Console.ResetColor();
-				Thread.Sleep(2000);
-			}
+			_renderer.RenderRoundWinner(winnerId, roundNumber);
+			Thread.Sleep(2000);
 		}
 
 		public void ShowPlayerJoined(string playerId, string playerName)
@@ -268,17 +191,19 @@ namespace BombermanOnlineProject.Client.Views
 
 		public void ShowPlayerLeft(string playerId)
 		{
-			DisplayMessage($"[-] Player {playerId.Substring(0, Math.Min(8, playerId.Length))} left the game");
+			DisplayMessage($"[-] Player {TruncateString(playerId, 8)} left the game");
 		}
 
 		public void ShowBombPlaced(string playerId, int x, int y)
 		{
-			DisplayMessage($"[BOMB] Player placed bomb at ({x}, {y})");
+			// Optional: Could add visual feedback here
+			// For now, bomb will be visible in map render
 		}
 
 		public void ShowExplosion(int centerX, int centerY, List<(int X, int Y)> affectedCells)
 		{
-			DisplayMessage($"[EXPLOSION] Center: ({centerX}, {centerY}), Cells: {affectedCells.Count}");
+			// Optional: Could add sound effect or animation here
+			// For now, explosion will be visible in map render
 		}
 
 		public void ShowPowerUpCollected(string playerId, string powerUpType)
@@ -288,12 +213,12 @@ namespace BombermanOnlineProject.Client.Views
 
 		public void ShowPlayerDied(string playerId)
 		{
-			DisplayError($"[DEATH] Player {playerId.Substring(0, Math.Min(8, playerId.Length))} died");
+			DisplayError($"[DEATH] Player {TruncateString(playerId, 8)} died");
 		}
 
-		public void UpdateGameState(object gameState)
-		{
-		}
+		#endregion
+
+		#region IGameView Implementation - Input
 
 		public ConsoleKey WaitForInput()
 		{
@@ -303,5 +228,72 @@ namespace BombermanOnlineProject.Client.Views
 			}
 			return ConsoleKey.NoName;
 		}
+
+		public void UpdateGameState(object gameState)
+		{
+			// Placeholder for future state updates
+			// Could be used for advanced rendering logic
+		}
+
+		#endregion
+
+		#region Theme Management
+
+		/// <summary>
+		/// Changes the game theme
+		/// </summary>
+		public void SetTheme(GameSettings.GameTheme theme)
+		{
+			_themeRenderer.SetTheme(theme);
+			DisplaySuccess($"Theme changed to: {theme}");
+		}
+
+		/// <summary>
+		/// Changes theme by name
+		/// </summary>
+		public void SetTheme(string themeName)
+		{
+			if (_themeRenderer.SetThemeByName(themeName))
+			{
+				DisplaySuccess($"Theme changed to: {themeName}");
+			}
+			else
+			{
+				DisplayError($"Invalid theme: {themeName}");
+			}
+		}
+
+		/// <summary>
+		/// Shows available themes
+		/// </summary>
+		public void ShowAvailableThemes()
+		{
+			Console.WriteLine("\n═══ Available Themes ═══\n");
+			foreach (var theme in ThemeRenderer.GetAvailableThemes())
+			{
+				Console.WriteLine($"- {theme}: {ThemeRenderer.GetThemeDescription(theme)}");
+			}
+			Console.WriteLine();
+		}
+
+		/// <summary>
+		/// Displays theme preview
+		/// </summary>
+		public void PreviewTheme()
+		{
+			_themeRenderer.DisplayThemePreview();
+		}
+
+		#endregion
+
+		#region Utility Methods
+
+		private string TruncateString(string str, int maxLength)
+		{
+			if (string.IsNullOrEmpty(str)) return string.Empty;
+			return str.Length <= maxLength ? str : str.Substring(0, maxLength);
+		}
+
+		#endregion
 	}
 }
